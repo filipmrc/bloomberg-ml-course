@@ -3,7 +3,7 @@ import logging
 import numpy as np
 import sys
 import matplotlib.pyplot as plt
-from sklearn.cross_validation import train_test_split
+from sklearn.model_selection import train_test_split
 
 ### Assignment Owner: Tian Wang
 
@@ -24,8 +24,22 @@ def feature_normalization(train, test):
         test_normalized  - test set after normalization
 
     """
-    # TODO
+    # train_max_c = np.abs(train).max(axis = 0)
+    # return train / train_max_c, test /train_max_c
+    feat_max = np.amax(train, axis=0, keepdims=True)
+    feat_min = np.amin(test, axis=0, keepdims=True)
 
+    constant_features = (feat_max == feat_min).squeeze()
+    feat_max_drop_const = feat_max[:, ~constant_features]
+    feat_min_drop_const = feat_min[:, ~constant_features]
+    train_drop_const = train[:, ~constant_features]
+    test_drop_const = test[:, ~constant_features]
+
+    normalizer = feat_max_drop_const - feat_min_drop_const
+    train_normalized = (train_drop_const - feat_min_drop_const) / normalizer
+    test_normalized = (test_drop_const - feat_min_drop_const) / normalizer
+
+    return train_normalized, test_normalized
 
 ########################################
 #### The square loss function
@@ -42,8 +56,12 @@ def compute_square_loss(X, y, theta):
     Returns:
         loss - the square loss, scalar
     """
-    loss = 0 #initialize the square_loss
-    #TODO
+    # predict = X.dot(theta[:, None])
+    # squared_error = np.square(y[:, None] - predict)
+    # loss = np.mean(squared_error)
+
+    # return loss
+    return (1.0 / X.shape[0])*(X@theta - y).T@(X@theta - y)
 
 
 
@@ -61,7 +79,7 @@ def compute_square_loss_gradient(X, y, theta):
     Returns:
         grad - gradient vector, 1D numpy array of size (num_features)
     """
-    #TODO
+    return (1.0 / X.shape[0])*(2*theta.T@X.T@X - 2*y.T@X)
 
 
 
@@ -115,8 +133,16 @@ def generic_gradient_checker(X, y, theta, objective_func, gradient_func, epsilon
     the true gradient for objective_func(X, y, theta).
     Eg: In LSR, the objective_func = compute_square_loss, and gradient_func = compute_square_loss_gradient
     """
-    #TODO
+    true_gradient = gradient_func(X,y,theta)
+    approx_grad = 0*true_gradient
+    for idx in range(len(theta)):
+        h = np.zeros(len(theta))
+        h[idx] = 1
+        approx_grad += (objective_func(X,y,theta + epsilon*h) - objective_func(X,y,theta - epsilon*h))/(2*epsilon)
 
+    if np.linalg.norm(approx_grad - true_gradient) < tolerance:
+        return True
+    return False
 
 ####################################
 #### Batch Gradient Descent
@@ -137,11 +163,19 @@ def batch_grad_descent(X, y, alpha=0.1, num_iter=1000, check_gradient=False):
                     for instance, theta in iteration 0 should be theta_hist[0], theta in ieration (num_iter) is theta_hist[-1]
         loss_hist - the history of objective function vector, 1D numpy array of size (num_iter+1)
     """
+
     num_instances, num_features = X.shape[0], X.shape[1]
     theta_hist = np.zeros((num_iter+1, num_features))  #Initialize theta_hist
     loss_hist = np.zeros(num_iter+1) #initialize loss_hist
-    theta = np.zeroes(num_features) #initialize theta
-    #TODO
+    theta = np.zeros(num_features) #initialize theta
+    for idx in range(num_iter+1):
+        loss_hist[idx] = compute_square_loss(X,y,theta)
+        grad = compute_square_loss_gradient(X,y,theta)
+        theta = theta - alpha*grad
+        theta_hist[idx] = theta
+
+    return theta_hist, loss_hist
+        
 
 ####################################
 ###Q2.4b: Implement backtracking line search in batch_gradient_descent
@@ -214,13 +248,36 @@ def stochastic_grad_descent(X, y, alpha=0.1, lambda_reg=1, num_iter=1000):
         theta_hist - the history of parameter vector, 3D numpy array of size (num_iter, num_instances, num_features)
         loss hist - the history of regularized loss function vector, 2D numpy array of size(num_iter, num_instances)
     """
+    eta0 = 0.05
+    if isinstance(alpha, float):
+        alpha_func = lambda x: alpha
+    elif alpha == "inv":
+        alpha_func = lambda x: eta0 / x
+    elif alpha == "invsqrt":
+        alpha_func = lambda x: eta0 / np.sqrt(x)
+    elif alpha == "rational":
+        alpha_func = lambda x: eta0 * 0.05 / (1 + eta0 * 0.05 * lambda_reg * x)
+    else:
+        raise ValueError(str)
+
     num_instances, num_features = X.shape[0], X.shape[1]
     theta = np.ones(num_features) #Initialize theta
 
+    theta_hist = np.zeros((num_iter+1, num_features))  #Initialize theta_hist
+    loss_hist = np.zeros(num_iter+1) #initialize loss_hist
+    minibatch_size = 100
 
-    theta_hist = np.zeros((num_iter, num_instances, num_features))  #Initialize theta_hist
-    loss_hist = np.zeros((num_iter, num_instances)) #Initialize loss_hist
-    #TODO
+    for idx in range(1, num_iter+1):
+        ids = np.random.choice(X.shape[0], minibatch_size, replace=False) 
+        
+        alpha = alpha_func(idx)
+        grad = compute_square_loss_gradient(X[ids], y[ids], theta)
+
+        theta = theta - alpha*grad
+        theta_hist[idx] = theta
+        loss_hist[idx] = compute_square_loss(X, y, theta)
+
+    return theta_hist, loss_hist
 
 ################################################
 ### Visualization that compares the convergence speed of batch
@@ -245,6 +302,19 @@ def main():
     X_test = np.hstack((X_test, np.ones((X_test.shape[0], 1)))) # Add bias term
 
     # TODO
+    alphas = [0.5,0.1,0.05,0.01,'inv','invsqrt','rational']
+    losses = {}
+    thetas = {}
+    for al in alphas:
+        # theta_hist, _ = batch_grad_descent(X_train,y_train,check_gradient=False, alpha=al)
+        theta_hist, _ = stochastic_grad_descent(X_train, y_train, alpha=al)
+        thetas[al] = theta_hist[-1]
+        losses[al] = compute_square_loss(X_test, y_test, thetas[al])
+        
+    # plt.plot(losses[alphas[0]])
+    print(losses)
+    # print(theta_hist)
+
 
 if __name__ == "__main__":
     main()
