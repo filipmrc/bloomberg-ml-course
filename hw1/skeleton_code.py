@@ -27,9 +27,9 @@ def feature_normalization(train, test):
     # train_max_c = np.abs(train).max(axis = 0)
     # return train / train_max_c, test /train_max_c
     feat_max = np.amax(train, axis=0, keepdims=True)
-    feat_min = np.amin(test, axis=0, keepdims=True)
-
+    feat_min = np.amin(train, axis=0, keepdims=True)
     constant_features = (feat_max == feat_min).squeeze()
+
     feat_max_drop_const = feat_max[:, ~constant_features]
     feat_min_drop_const = feat_min[:, ~constant_features]
     train_drop_const = train[:, ~constant_features]
@@ -56,11 +56,6 @@ def compute_square_loss(X, y, theta):
     Returns:
         loss - the square loss, scalar
     """
-    # predict = X.dot(theta[:, None])
-    # squared_error = np.square(y[:, None] - predict)
-    # loss = np.mean(squared_error)
-
-    # return loss
     return (1.0 / X.shape[0])*(X@theta - y).T@(X@theta - y)
 
 
@@ -199,7 +194,7 @@ def compute_regularized_square_loss_gradient(X, y, theta, lambda_reg):
     Returns:
         grad - gradient vector, 1D numpy array of size (num_features)
     """
-    #TODO
+    return (1.0 / X.shape[0])*(2*theta.T@X.T@X - 2*y.T@X) + 2*lambda_reg*theta
 
 ###################################################
 ### Batch Gradient Descent with regularization term
@@ -216,11 +211,19 @@ def regularized_grad_descent(X, y, alpha=0.1, lambda_reg=1, num_iter=1000):
         theta_hist - the history of parameter vector, 2D numpy array of size (num_iter+1, num_features)
         loss_hist - the history of loss function without the regularization term, 1D numpy array.
     """
-    (num_instances, num_features) = X.shape
-    theta = np.zeros(num_features) #Initialize theta
+    num_instances, num_features = X.shape[0], X.shape[1]
     theta_hist = np.zeros((num_iter+1, num_features))  #Initialize theta_hist
-    loss_hist = np.zeros(num_iter+1) #Initialize loss_hist
-    #TODO
+    loss_hist = np.zeros(num_iter+1) #initialize loss_hist
+    theta = np.zeros(num_features) #initialize theta
+    for idx in range(num_iter+1):
+        loss_hist[idx] = compute_square_loss(X,y,theta)
+        grad = compute_regularized_square_loss_gradient(X,y,theta, lambda_reg=lambda_reg)
+        # print(grad)
+        theta = theta - alpha*grad
+        theta_hist[idx] = theta
+
+    return theta_hist, loss_hist
+        
 
 #############################################
 ## Visualization of Regularized Batch Gradient Descent
@@ -271,7 +274,8 @@ def stochastic_grad_descent(X, y, alpha=0.1, lambda_reg=1, num_iter=1000):
         ids = np.random.choice(X.shape[0], minibatch_size, replace=False) 
         
         alpha = alpha_func(idx)
-        grad = compute_square_loss_gradient(X[ids], y[ids], theta)
+        # grad = compute_square_loss_gradient(X[ids], y[ids], theta)
+        grad = compute_regularized_square_loss_gradient(X[ids], y[ids], theta,lambda_reg=lambda_reg)
 
         theta = theta - alpha*grad
         theta_hist[idx] = theta
@@ -302,18 +306,18 @@ def main():
     X_test = np.hstack((X_test, np.ones((X_test.shape[0], 1)))) # Add bias term
 
     # TODO
-    alphas = [0.5,0.1,0.05,0.01,'inv','invsqrt','rational']
+    # alphas = [0.5,0.1,0.05,0.01,'inv','invsqrt','rational']
+    alphas = [0.5,0.1,0.05,0.01]
     losses = {}
     thetas = {}
     for al in alphas:
         # theta_hist, _ = batch_grad_descent(X_train,y_train,check_gradient=False, alpha=al)
-        theta_hist, _ = stochastic_grad_descent(X_train, y_train, alpha=al)
+        # theta_hist, _ = stochastic_grad_descent(X_train, y_train, alpha=al, lambda_reg=0.001)
+        theta_hist, _ = regularized_grad_descent(X_train, y_train, alpha=al, lambda_reg=0.004, num_iter=1000)
         thetas[al] = theta_hist[-1]
         losses[al] = compute_square_loss(X_test, y_test, thetas[al])
         
-    # plt.plot(losses[alphas[0]])
     print(losses)
-    # print(theta_hist)
 
 
 if __name__ == "__main__":
